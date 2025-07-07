@@ -1,0 +1,19 @@
+services:
+  tinker-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    models:
+      qwen2_5_latest:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST
+      unsloth_4b:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_UNSLOTH_4B
+
+
+models:
+  qwen2_5_latest:
+    model: ai/qwen2.5:latest
+  unsloth_4b:
+    model: unsloth/qwen3-gguf:4B-UD-Q4_K_XL
