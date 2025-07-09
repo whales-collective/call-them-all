@@ -26,8 +26,10 @@ func main() {
 		Make a Vulcan salute to Sam
 		Say hello to Alice and then make a vulcan salut to Bob
 	`
-	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST"))
-	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_UNSLOTH_4B"))
+	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST"))
+	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_UNSLOTH_4B"))
+	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_LATEST"))
+	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_0_6B_F16"))
 
 }
 

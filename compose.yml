@@ -10,10 +10,43 @@ services:
       unsloth_4b:
         endpoint_var: MODEL_RUNNER_BASE_URL
         model_var: MODEL_RUNNER_CHAT_MODEL_UNSLOTH_4B
-
+      gemma3_qat_1B:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_GEMMA3_QAT_1B
+      gemma3_qat_latest:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_GEMMA3_QAT_LATEST
+      gemma3_latest:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_GEMMA3_LATEST
+      tiny_llama_1_1b_chat:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_TINY_LLAMA_1_1B_CHAT
+      qwen3_latest:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_QWEN3_LATEST
+      qwen3_0_6b_f16:
+        endpoint_var: MODEL_RUNNER_BASE_URL
+        model_var: MODEL_RUNNER_CHAT_MODEL_QWEN3_0_6B_F16
 
 models:
   qwen2_5_latest:
     model: ai/qwen2.5:latest
   unsloth_4b:
     model: unsloth/qwen3-gguf:4B-UD-Q4_K_XL
+  gemma3_qat_1B:
+    model: ai/gemma3-qat:1B-Q4_K_M
+  gemma3_qat_latest:
+    model: ai/gemma3-qat:latest  
+  gemma3_latest:
+    model: ai/gemma3:latest
+  tiny_llama_1_1b_chat:
+    model: hf.co/thebloke/tinyllama-1.1b-chat-v1.0-gguf:q4_k_m
+  qwen3_latest:
+    model: ai/qwen3:latest
+  qwen3_0_6b_f16:
+    model: ai/qwen3:0.6B-F16
+
+
+
+    
