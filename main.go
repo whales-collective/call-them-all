@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -26,10 +27,11 @@ func main() {
 		Make a Vulcan salute to Sam
 		Say hello to Alice and then make a vulcan salut to Bob
 	`
-	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST"))
-	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_UNSLOTH_4B"))
-	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_LATEST"))
-	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_0_6B_F16"))
+
+	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST"))
+	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN2_5_1_5B_F16"))
+	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN2_5_3B_F16"))
+	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_GEMMA3_LATEST"))
 
 }
 
@@ -40,7 +42,9 @@ func DetectToolCallsFromContentWith(content string, smallLocalModel string) {
 		option.WithAPIKey(""),
 	)
 
+	//systemMessageContent, err := GeneratePromptFromToolsCatalog()
 	systemMessageContent, err := GeneratePromptFromToolsCatalog()
+
 	if err != nil {
 		log.Fatalf("Error generating system message content: %v", err)
 	}
@@ -66,6 +70,10 @@ func DetectToolCallsFromContentWith(content string, smallLocalModel string) {
 		log.Fatal("No content returned from chat completion")
 	}
 	fmt.Println("✋ First Result:", result)
+
+	// NOTE: make sure the result is a valid JSON array
+	// if the result string is surrounded by ```json and ```, remove them
+	result = CleanGemma3JSONString(result)
 
 	// Make a second completion to force the JSON output format
 
@@ -110,31 +118,6 @@ func DetectToolCallsFromContentWith(content string, smallLocalModel string) {
 	}
 }
 
-func GeneratePromptFromToolsCatalog() (string, error) {
-
-	systemContentIntroduction := `You have access to the following tools:`
-	// make a JSON String from the content of tools
-	toolsJson, err := json.Marshal(GetToolsCatalog())
-	if err != nil {
-		return "", err
-	}
-	toolsContent := "[AVAILABLE_TOOLS]" + string(toolsJson) + "[/AVAILABLE_TOOLS]"
-
-	systemContentInstructions := `If the question of the user matched the description of a tool, the tool will be called.
-	To call a tool, respond with a JSON object with the following structure: 
-	[
-		{
-			"name": <name of the called tool>,
-			"arguments": {
-				<name of the argument>: <value of the argument>
-			}
-		},
-	]
-	
-	search the name of the tool in the list of tools with the Name field
-	`
-	return systemContentIntroduction + "\n" + toolsContent + "\n" + systemContentInstructions, nil
-}
 
 func GetToolsCatalog() []openai.ChatCompletionToolParam {
 
@@ -193,4 +176,83 @@ func GetToolsCatalog() []openai.ChatCompletionToolParam {
 		vulcanSaluteTool, sayHelloTool, additionTool,
 	}
 	return tools
+}
+
+// CleanGemma3JSONString removes ```json from the beginning and ``` from the end of a string if they exist
+func CleanGemma3JSONString(input string) string {
+	// Trim whitespace first
+	input = strings.TrimSpace(input)
+
+	// Check if string starts with ```json and remove it
+	if strings.HasPrefix(input, "```json") {
+		input = strings.TrimPrefix(input, "```json")
+		input = strings.TrimSpace(input) // Remove any whitespace after ```json
+	}
+
+	// Check if string ends with ``` and remove it
+	if strings.HasSuffix(input, "```") {
+		input = strings.TrimSuffix(input, "```")
+		input = strings.TrimSpace(input) // Remove any whitespace before ```
+	}
+
+	return input
+}
+
+func GeneratePromptFromToolsCatalog() (string, error) {
+	systemContentIntroduction := `You are an AI assistant with access to various tools. Your task is to analyze user input and identify ALL possible tool calls that can be made.
+
+		IMPORTANT: You must process the ENTIRE user input and identify ALL tool calls, not just the first few. Each line or request in the user input should be analyzed separately.
+
+		You have access to the following tools:`
+
+	// make a JSON String from the content of tools
+	toolsJson, err := json.Marshal(GetToolsCatalog())
+	if err != nil {
+		return "", err
+	}
+	toolsContent := "\n[AVAILABLE_TOOLS]\n" + string(toolsJson) + "\n[/AVAILABLE_TOOLS]\n"
+
+	systemContentInstructions := `INSTRUCTIONS:
+		1. Read the ENTIRE user input carefully
+		2. Process each line/request separately
+		3. For each request, check if it matches any tool description
+		4. If multiple tool calls are needed, include ALL of them in your response
+		5. NEVER stop processing until you've analyzed the complete input
+
+		TOOL MATCHING RULES:
+		- Match tool calls based on the "description" field of each tool
+		- Use the exact "name" field from the tool definition
+		- Provide all required arguments as specified in the tool's parameters
+
+		RESPONSE FORMAT:
+		When you find tool calls, respond with a JSON array containing ALL identified tool calls:
+		[
+			{
+				"name": "<exact_tool_name_from_catalog>",
+				"arguments": {
+					"<parameter_name>": "<parameter_value>"
+				}
+			},
+			{
+				"name": "<next_tool_name>",
+				"arguments": {
+					"<parameter_name>": "<parameter_value>"
+				}
+			}
+		]
+
+		EXAMPLES:
+		Input: "Say hello to John. Add 5 and 10. Make vulcan salute to Spock."
+		Output: [
+			{"name": "send_message", "arguments": {"name": "John"}},
+			{"name": "operation", "arguments": {"number1": 5, "number2": 10, "number3": 8}},
+			{"name": "greetings", "arguments": {"name": "Jane"}}
+		]
+
+		If no tool calls are found, respond with an empty array: []
+
+		CRITICAL: You must analyze the COMPLETE user input and identify ALL possible tool calls. Do not stop after finding the first few matches.
+	`
+
+	return systemContentIntroduction + toolsContent + systemContentInstructions, nil
 }
