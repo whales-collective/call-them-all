@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 )
 
 func main() {
-
+ 
 	content := `
 		Make a Vulcan salute to Spock
 		Say Hello to John Doe
@@ -29,9 +29,10 @@ func main() {
 	`
 
 	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST"))
-	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN2_5_1_5B_F16"))
+	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN2_5_1_5B_F16"))
 	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN2_5_3B_F16"))
-	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_GEMMA3_LATEST"))
+	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_GEMMA3_LATEST"))
+	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_0_6B_Q4_K_M"))
 
 }
 
@@ -49,16 +50,53 @@ func DetectToolCallsFromContentWith(content string, smallLocalModel string) {
 		log.Fatalf("Error generating system message content: %v", err)
 	}
 
-	paramsFirstCompletion := openai.ChatCompletionNewParams{
+	responseFormat := openai.ChatCompletionNewParamsResponseFormatUnion{
+		OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+			Type: "json_schema",
+			JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+				Name:        "function_calls",
+				Description: openai.String("Function calls data structure"),
+				Schema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"function_calls": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"name": map[string]any{
+										"type":        "string",
+										"description": "The name of the function to call",
+									},
+									"arguments": map[string]any{
+										"type":        "object",
+										"description": "The arguments to pass to the function",
+									},
+								},
+								"required":             []string{"name", "arguments"},
+								"additionalProperties": false,
+							},
+							"description": "Array of function calls to execute",
+						},
+					},
+					"required":             []string{"function_calls"},
+					"additionalProperties": false,
+				},
+			},
+		},
+	}
+
+	paramsCompletion := openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(systemMessageContent),
 			openai.UserMessage(content),
 		},
-		Model:       smallLocalModel,
-		Temperature: openai.Opt(0.0),
+		Model:          smallLocalModel,
+		Temperature:    openai.Opt(0.0),
+		ResponseFormat: responseFormat,
 	}
 
-	completion, err := client.Chat.Completions.New(context.Background(), paramsFirstCompletion)
+	completion, err := client.Chat.Completions.New(context.Background(), paramsCompletion)
 	if err != nil {
 		log.Fatalf("Error creating chat completion: %v", err)
 	}
@@ -67,57 +105,33 @@ func DetectToolCallsFromContentWith(content string, smallLocalModel string) {
 	}
 	result := completion.Choices[0].Message.Content
 	if result == "" {
-		log.Fatal("No content returned from chat completion")
+		log.Fatal("No tool calls detected")
 	}
-	fmt.Println("✋ First Result:", result)
+	fmt.Println("✋ JSON String Result:", result)
 
-	// NOTE: make sure the result is a valid JSON array
-	// if the result string is surrounded by ```json and ```, remove them
-	result = CleanGemma3JSONString(result)
-
-	// Make a second completion to force the JSON output format
-
-	paramsSecondCompletion := openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.SystemMessage("Return all function calls wrapped in a container object with a 'function_calls' key."),
-			openai.UserMessage(result),
-		},
-		Model:       smallLocalModel,
-		Temperature: openai.Opt(0.0),
-		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONObject: &openai.ResponseFormatJSONObjectParam{
-				Type: "json_object",
-			},
-		},
+	type Command struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
 	}
 
-	completionNext, err := client.Chat.Completions.New(context.Background(), paramsSecondCompletion)
-	if err != nil {
-		log.Fatalf("Error creating chat completion for next step: %v", err)
+	type FunctionCalls struct {
+		FunctionCalls []Command `json:"function_calls"`
 	}
-	if len(completionNext.Choices) == 0 {
-		log.Fatal("No choices returned from chat completion for next step")
-	}
-	resultNext := completionNext.Choices[0].Message.Content
-	if resultNext == "" {
-		log.Fatal("No content returned from chat completion for next step")
-	}
-	fmt.Println("🚀 Next Result:", resultNext)
 
-	var commands []map[string]any
+	var commands FunctionCalls
+
 	errJson := json.Unmarshal([]byte(result), &commands)
 	if errJson != nil {
 		log.Fatalf("Error unmarshalling JSON result: %v", errJson)
 	}
-	if len(commands) == 0 {
+	if len(commands.FunctionCalls) == 0 {
 		log.Fatal("No commands found in the JSON result")
 	}
-	fmt.Println("Commands found with", smallLocalModel, ":", len(commands))
-	for _, command := range commands {
+	fmt.Println("Commands found with", smallLocalModel, ":", len(commands.FunctionCalls))
+	for _, command := range commands.FunctionCalls {
 		fmt.Println("  - Command:", command)
 	}
 }
-
 
 func GetToolsCatalog() []openai.ChatCompletionToolParam {
 
@@ -178,32 +192,11 @@ func GetToolsCatalog() []openai.ChatCompletionToolParam {
 	return tools
 }
 
-// CleanGemma3JSONString removes ```json from the beginning and ``` from the end of a string if they exist
-func CleanGemma3JSONString(input string) string {
-	// Trim whitespace first
-	input = strings.TrimSpace(input)
-
-	// Check if string starts with ```json and remove it
-	if strings.HasPrefix(input, "```json") {
-		input = strings.TrimPrefix(input, "```json")
-		input = strings.TrimSpace(input) // Remove any whitespace after ```json
-	}
-
-	// Check if string ends with ``` and remove it
-	if strings.HasSuffix(input, "```") {
-		input = strings.TrimSuffix(input, "```")
-		input = strings.TrimSpace(input) // Remove any whitespace before ```
-	}
-
-	return input
-}
-
 func GeneratePromptFromToolsCatalog() (string, error) {
 	systemContentIntroduction := `You are an AI assistant with access to various tools. Your task is to analyze user input and identify ALL possible tool calls that can be made.
-
-		IMPORTANT: You must process the ENTIRE user input and identify ALL tool calls, not just the first few. Each line or request in the user input should be analyzed separately.
-
-		You have access to the following tools:`
+	IMPORTANT: You must process the ENTIRE user input and identify ALL tool calls, not just the first few. Each line or request in the user input should be analyzed separately.
+	You have access to the following tools:
+	`
 
 	// make a JSON String from the content of tools
 	toolsJson, err := json.Marshal(GetToolsCatalog())
@@ -213,45 +206,45 @@ func GeneratePromptFromToolsCatalog() (string, error) {
 	toolsContent := "\n[AVAILABLE_TOOLS]\n" + string(toolsJson) + "\n[/AVAILABLE_TOOLS]\n"
 
 	systemContentInstructions := `INSTRUCTIONS:
-		1. Read the ENTIRE user input carefully
-		2. Process each line/request separately
-		3. For each request, check if it matches any tool description
-		4. If multiple tool calls are needed, include ALL of them in your response
-		5. NEVER stop processing until you've analyzed the complete input
+	1. Read the ENTIRE user input carefully
+	2. Process each line/request separately
+	3. For each request, check if it matches any tool description
+	4. If multiple tool calls are needed, include ALL of them in your response
+	5. NEVER stop processing until you've analyzed the complete input
 
-		TOOL MATCHING RULES:
-		- Match tool calls based on the "description" field of each tool
-		- Use the exact "name" field from the tool definition
-		- Provide all required arguments as specified in the tool's parameters
+	TOOL MATCHING RULES:
+	- Match tool calls based on the "description" field of each tool
+	- Use the exact "name" field from the tool definition
+	- Provide all required arguments as specified in the tool's parameters
 
-		RESPONSE FORMAT:
-		When you find tool calls, respond with a JSON array containing ALL identified tool calls:
-		[
-			{
-				"name": "<exact_tool_name_from_catalog>",
-				"arguments": {
-					"<parameter_name>": "<parameter_value>"
-				}
-			},
-			{
-				"name": "<next_tool_name>",
-				"arguments": {
-					"<parameter_name>": "<parameter_value>"
-				}
+	RESPONSE FORMAT:
+	When you find tool calls, respond with a JSON array containing ALL identified tool calls:
+	[
+		{
+			"name": "<exact_tool_name_from_catalog>",
+			"arguments": {
+				"<parameter_name>": "<parameter_value>"
 			}
-		]
+		},
+		{
+			"name": "<next_tool_name>",
+			"arguments": {
+				"<parameter_name>": "<parameter_value>"
+			}
+		}
+	]
 
-		EXAMPLES:
-		Input: "Say hello to John. Add 5 and 10. Make vulcan salute to Spock."
-		Output: [
-			{"name": "send_message", "arguments": {"name": "John"}},
-			{"name": "operation", "arguments": {"number1": 5, "number2": 10, "number3": 8}},
-			{"name": "greetings", "arguments": {"name": "Jane"}}
-		]
+	EXAMPLES:
+	Input: "Say hello to John. Add 5 and 10. Make vulcan salute to Spock."
+	Output: [
+		{"name": "send_message", "arguments": {"name": "John"}},
+		{"name": "operation", "arguments": {"number1": 5, "number2": 10, "number3": 8}},
+		{"name": "greetings", "arguments": {"name": "Jane"}}
+	]
 
-		If no tool calls are found, respond with an empty array: []
+	If no tool calls are found, respond with an empty array: []
 
-		CRITICAL: You must analyze the COMPLETE user input and identify ALL possible tool calls. Do not stop after finding the first few matches.
+	CRITICAL: You must analyze the COMPLETE user input and identify ALL possible tool calls. Do not stop after finding the first few matches.
 	`
 
 	return systemContentIntroduction + toolsContent + systemContentInstructions, nil
