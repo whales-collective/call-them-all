@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
- 
+
 	content := `
 		Make a Vulcan salute to Spock
 		Say Hello to John Doe
@@ -28,11 +28,11 @@ func main() {
 		Say hello to Alice and then make a vulcan salut to Bob
 	`
 
-	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST"))
-	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN2_5_1_5B_F16"))
-	//🟢 DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN2_5_3B_F16"))
-	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_GEMMA3_LATEST"))
-	//DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_0_6B_Q4_K_M"))
+	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN_LATEST"))
+	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_GEMMA3_LATEST"))
+	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_0_6B_Q4_K_M"))
+	DetectToolCallsFromContentWith(content, os.Getenv("MODEL_RUNNER_CHAT_MODEL_QWEN3_LATEST"))
+
 
 }
 
@@ -127,9 +127,40 @@ func DetectToolCallsFromContentWith(content string, smallLocalModel string) {
 	if len(commands.FunctionCalls) == 0 {
 		log.Fatal("No commands found in the JSON result")
 	}
+
+	functions := map[string]func(any) (any, error){
+
+		"addition": func(args any) (any, error) {
+			number1 := args.(map[string]any)["number1"].(float64)
+			number2 := args.(map[string]any)["number2"].(float64)
+			return number1 + number2, nil
+		},
+
+		"say_hello": func(args any) (any, error) {
+			name := args.(map[string]any)["name"].(string)
+			return fmt.Sprintf("Hello, %s!", name), nil
+		},
+
+		"vulcan_salute": func(args any) (any, error) {
+			name := args.(map[string]any)["name"].(string)
+			return fmt.Sprintf("Peace and prosper, %s!", name), nil
+		},
+
+	}
+
 	fmt.Println("Commands found with", smallLocalModel, ":", len(commands.FunctionCalls))
 	for _, command := range commands.FunctionCalls {
-		fmt.Println("  - Command:", command)
+		fmt.Println("  - Command:", command.Name, "with arguments:", command.Arguments)
+		if function, exists := functions[command.Name]; exists {
+			result, err := function(command.Arguments)
+			if err != nil {
+				log.Printf("🔴 Error executing command %s: %v", command.Name, err)
+				continue
+			}
+			fmt.Printf("    🟢 Result of %s: %v\n", command.Name, result)
+		} else {
+			fmt.Printf("    🟠 No function defined for command: %s\n", command.Name)
+		}
 	}
 }
 
